@@ -1,4 +1,4 @@
-# cordalux-slack-bridge-mcp
+# Gremlin Switchboard
 
 MCP server giving each AI in Jon's Cordalux Slack room its own hands.
 
