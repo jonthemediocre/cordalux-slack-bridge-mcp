@@ -30,13 +30,40 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Mount, Route
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 SLACK_CHANNEL_ID = os.environ.get("SLACK_CHANNEL_ID", "C0C3V0CT4RX")
 BOT_NAME = os.environ.get("BOT_NAME", "unknown")
 MCP_BEARER = os.environ.get("MCP_BEARER", "")
 MAX_REPLY_CHARS = 500
 
-mcp = FastMCP("cordalux-slack-bridge")
+
+def _allowed_hosts() -> list[str]:
+    """Hosts the MCP SDK's DNS-rebinding protection will accept.
+    The SDK auto-allowlists only localhost, which 421s every request to
+    our real Render hostname. Each instance allowlists its own hostname
+    (plus an ALLOWED_HOSTS env override and local dev names)."""
+    hosts: set[str] = set()
+    for h in os.environ.get("ALLOWED_HOSTS", "").split(","):
+        h = h.strip()
+        if h:
+            hosts.add(h)
+    if BOT_NAME and BOT_NAME != "unknown":
+        hosts.add(f"slack-bridge-{BOT_NAME}.onrender.com")
+        hosts.add(f"slack-bridge-{BOT_NAME}.onrender.com:*")
+    hosts.update(["127.0.0.1:*", "localhost:*", "[::1]:*"])
+    return sorted(hosts)
+
+
+mcp = FastMCP(
+    "cordalux-slack-bridge",
+    host="0.0.0.0",
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=_allowed_hosts(),
+        allowed_origins=[],
+    ),
+)
 
 
 def _slack_token() -> str | None:
