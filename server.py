@@ -147,10 +147,50 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         if not MCP_BEARER:
             return Response("bridge auth not configured", status_code=503)
-        auth = request.headers.get("authorization", "")
-        if auth != f"Bearer {MCP_BEARER}":
+        token = _extract_token(request)
+        if token != MCP_BEARER:
+            # Log shape only, never values.
+            print(f"auth denied: path={request.url.path} "
+                  f"placement={_token_placement(request)} "
+                  f"auth_header_present={'authorization' in request.headers}",
+                  flush=True)
             return Response("unauthorized", status_code=401)
         return await call_next(request)
+
+
+def _token_placement(request: Request) -> str:
+    if request.headers.get("authorization"):
+        return "authorization_header"
+    for h in ("x-api-key", "x-mcp-key", "x-auth-token"):
+        if request.headers.get(h):
+            return h
+    for q in ("token", "bearer", "api_key", "access_token"):
+        if request.query_params.get(q):
+            return f"query:{q}"
+    return "none"
+
+
+def _extract_token(request: Request) -> str:
+    """Pull the bearer token from wherever the connector put it.
+    Connectors vary: some send `Bearer <t>`, some the raw token, some a
+    custom header, some a query param. Accept them all; the token value
+    itself is still the secret."""
+    auth = request.headers.get("authorization", "").strip()
+    if auth:
+        scheme, _, cred = auth.partition(" ")
+        if cred and scheme.lower() == "bearer":
+            return cred.strip().strip("'\"")
+        # Raw token without scheme (some connector UIs do this).
+        return auth.strip("'\"")
+    for h in ("x-api-key", "x-mcp-key", "x-auth-token"):
+        v = request.headers.get(h, "").strip()
+        if v:
+            return v.strip("'\"")
+    for q in ("token", "bearer", "api_key", "access_token"):
+        v = request.query_params.get(q, "").strip()
+        if v:
+            return v
+    return ""
 
 
 @mcp.custom_route("/health", methods=["GET"])
